@@ -5,7 +5,7 @@
 # * 1. To create your own project, replace "gtsam_example" with the actual name
 #   of your project
 cmake_minimum_required(VERSION 3.9)
-project(gtasm_custom_factors CXX C)
+project(gtsam_custom_factors CXX C)
 set(CXX_STANDARD 11)
 
 # ##############################################################################
@@ -24,7 +24,7 @@ include_directories(BEFORE "${PROJECT_SOURCE_DIR}")
 # ##############################################################################
 # * 4. Build static library from common sources. This is a common cmake step
 #   where we load all the source files and link against the GTSAM library.
-add_library(${PROJECT_NAME} SHARED cpp/PenEven.h cpp/TorqPoint.h cpp/ContactMotion.h cpp/PoseDiff.h cpp/PenHinge.h cpp/DispDiff.h cpp/Wrench.h cpp/WrenchInc.h cpp/DispVar.h cpp/EnergyElastic.h cpp/TorqLine.h)
+add_library(${PROJECT_NAME} SHARED cpp/PenEven.h cpp/TorqPoint.h cpp/ContactMotion.h cpp/PoseDiff.h cpp/PenHinge.h cpp/DispDiff.h cpp/Wrench.h cpp/WrenchInc.h cpp/DispVar.h cpp/EnergyElastic.h cpp/TorqLine.h cpp/greeting.h cpp/greeting.cpp)
 target_link_libraries(${PROJECT_NAME} gtsam)
 
 # ##############################################################################
