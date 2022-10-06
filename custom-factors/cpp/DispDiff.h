@@ -8,7 +8,7 @@
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/base/Lie.h>
 
-namespace gtsam_packing {
+namespace gtsam_custom_factors {
 
 class DispDiff: public gtsam::NoiseModelFactor4<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3> {
 
@@ -73,4 +73,4 @@ public:
 
 }; // \class DispDiff
 
-} /// namespace gtsam_packing
+} /// namespace gtsam_custom_factors

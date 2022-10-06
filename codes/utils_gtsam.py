@@ -2,8 +2,8 @@
 
 import numpy as np
 import gtsam
-from gtsam_packing import TactileTransformFactor_3D, TactileTransformFactor_3D_nonlinear, PoseOdometryFactor, StiffnessRatioFactor6, ContactMotionFactor, StiffnessRatioLine, NOCFactor, WrenchFactor, PenetrationFactor_2
-from gtsam_packing import WrenchPredictFactor, DisplacementFactor, WrenchEnergyFactor
+from gtsam_custom_factors import DispDiff, PoseDIff, TorqPoint, ContactMotion, TorqLine, PenEven, Wrench, PenHinge
+from gtsam_custom_factors import WrenchInc, DispVar, EnergyElastic
 from scipy.spatial.transform import Rotation as R
 from gtsam.symbol_shorthand import G, N, O, C, T, U, S, W  # Symbols for Variables / G: Gripper, N: Object (rest), O: Object (equil), C: Contact, T: Command Rotation, U: Control Input, S: Grasp Parameters, W: Wrench
                                                            # O(int(1e5)+i): displacement from object resting pose to equilibrium pose in canonical coordinate (Rx, Ry, Rz, x, y, z)
@@ -267,9 +267,9 @@ class gtsam_graph:
         self.push_back(self.graph, gtsam.PriorFactorPose3(G(0), self.G_0, self.ALL_FIXED), self.f_num, self.f_dict, P(0)) # F_gp
         self.push_back(self.graph, gtsam.BetweenFactorPose3(G(0), N(0),
                     gtsam.Pose3(gtsam.Rot3(self.R_go), self.R_go @ np.array([0, 0, -self.reach])), self.OBJECT_PRIOR_NOISE), self.f_num) # F_op
-        self.push_back(self.graph, TactileTransformFactor_3D(N(0), O(0), G(0), G(0),
+        self.push_back(self.graph, DispDiff(N(0), O(0), G(0), G(0),
                     gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, B(0)) # F_tac
-        self.push_back(self.graph, DisplacementFactor(G(0), N(0), O(0), O(int(1e5)), self.ALL_FIXED__), self.f_num)
+        self.push_back(self.graph, DispVar(G(0), N(0), O(0), O(int(1e5)), self.ALL_FIXED__), self.f_num)
         self.push_back(self.graph, gtsam.BetweenFactorPose3(O(0), D(0), gtsam.Pose3(gtsam.Rot3(), [0, 0, 0]), self.CT_PRIOR_NOISE), self.f_num)
         self.push_back(self.graph, gtsam.BetweenFactorPose3(C(0), D(0), gtsam.Pose3(gtsam.Rot3(), [0, 0, 0]), self.T_FIXED), self.f_num)
         self.push_back(self.graph, gtsam.PriorFactorPose3(C(0), gtsam.Pose3(self.R_go), self.R_FIXED), self.f_num)
@@ -286,7 +286,7 @@ class gtsam_graph:
             else:
                 self.push_back(self.graph, gtsam.PriorFactorVector(S(0), st_prior, self.STIFFNESS_FIXED), self.f_num, self.f_dict, 123456)
         
-        self.push_back(self.graph, WrenchFactor(G(0), N(0), O(0), W(0), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(int(1e5)))
+        self.push_back(self.graph, Wrench(G(0), N(0), O(0), W(0), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(int(1e5)))
         self.push_back(self.graph, gtsam.PriorFactorVector(W(0), np.zeros(6), gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-2, 1e-2, 1e-2, 1e-4, 1e-4, 1e-4]))), self.f_num)
 
         ## Initial guesses ##
@@ -336,31 +336,31 @@ class gtsam_graph:
 
             # F_rot
             self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
-            self.push_back(self.graph, PoseOdometryFactor(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+            self.push_back(self.graph, PoseDIff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
             
             # F_motion
             self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT____), self.f_num, self.f_dict, M(self.j))
-            self.push_back(self.graph, ContactMotionFactor(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
+            self.push_back(self.graph, ContactMotion(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
             
-            self.push_back(self.graph, TactileTransformFactor_3D(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num)
+            self.push_back(self.graph, DispDiff(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num)
 
-            self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
-            self.push_back(self.graph, DisplacementFactor(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
+            self.push_back(self.graph, WrenchInc(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
+            self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
             
             # F_E
             if not self.NO_ENERGY_FACTOR:
-                self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
+                self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
             else:
-                self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j))
+                self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j))
             
             # F_pen
             if self.min_type == "force":
                 self.minimum_threshold = np.hstack((np.linspace(0, self.minimum_nominal, self.control_horizon-4)[1:],np.array(5*[self.minimum_nominal])))
-                self.push_back(self.graph, PenetrationFactor_2(N(self.j), C(self.j), O(self.j), self.MIN_FORCE, self.minimum_threshold[self.j-1]), self.f_num, self.f_dict, J(self.j))
+                self.push_back(self.graph, PenHinge(N(self.j), C(self.j), O(self.j), self.MIN_FORCE, self.minimum_threshold[self.j-1]), self.f_num, self.f_dict, J(self.j))
             else:
                 raise NotImplementedError
             
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.T_FIXED_, False), self.f_num)
+            self.push_back(self.graph, DispDiff(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.T_FIXED_, False), self.f_num)
             self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.j-1), C(self.j), gtsam.Pose3(), self.P_FIXED), self.f_num)
             self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.j-1), C(self.j), gtsam.Pose3(), self.STICK), self.f_num, self.f_dict, A(self.j))
 
@@ -465,7 +465,7 @@ class gtsam_graph:
                 remove_idx.append(self.f_dict[P(0)])
 
                 # tactile deformation measurement (F_tac)
-                self.push_back(self.graph, TactileTransformFactor_3D(N(0), O(0), G(0), G(0),
+                self.push_back(self.graph, DispDiff(N(0), O(0), G(0), G(0),
                         gtsam.Pose3(gtsam.Rot3(TM_rot), TM_trn), self.ALL_FIXED__, False), self.f_num, self.f_dict, B(0))
                 
                 # gripper position (F_gp)
@@ -498,38 +498,38 @@ class gtsam_graph:
                 self.push_back(self.graph, gtsam.PriorFactorPose3(G(self.i), gtsam.Pose3(gtsam.Rot3(g_rot), g_trn), self.ALL_FIXED_), self.f_num)
 
                 # tactile deformation measurement (F_tac, F_tac_inc)
-                self.push_back(self.graph, TactileTransformFactor_3D(N(0), O(self.i), G(0), G(self.i),
+                self.push_back(self.graph, DispDiff(N(0), O(self.i), G(0), G(self.i),
                             gtsam.Pose3(gtsam.Rot3(TM_rot), TM_trn), self.DEFORM_NOISE_, False), self.f_num, self.f_dict, D(int(1e5)+self.i)) # F_tac
-                self.push_back(self.graph, TactileTransformFactor_3D(O(max(self.i-10,0)), O(self.i), G(max(self.i-10,0)), G(self.i),
+                self.push_back(self.graph, DispDiff(O(max(self.i-10,0)), O(self.i), G(max(self.i-10,0)), G(self.i),
                             gtsam.Pose3.between(gtsam.Pose3(gtsam.Rot3(TM_rot_), TM_trn_),
                                             gtsam.Pose3(gtsam.Rot3(TM_rot), TM_trn)), self.DEFORM_NOISE, False), self.f_num, self.f_dict, D(int(2e5)+self.i)) # F_tac_inc
 
                 # This factor infers the wrench (F_wr, F_wr_inc) and grasp parameters (F_torq)
-                self.push_back(self.graph, WrenchFactor(G(self.i), N(self.i), O(self.i), W(self.i), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(self.i+int(1e5))) # F_wr
-                self.push_back(self.graph, StiffnessRatioFactor6(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFRATIO_NOISE), self.f_num, self.f_dict, Q(self.i)) # F_torq
-                self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i)) # F_wr_inc
+                self.push_back(self.graph, Wrench(G(self.i), N(self.i), O(self.i), W(self.i), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(self.i+int(1e5))) # F_wr
+                self.push_back(self.graph, TorqPoint(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFRATIO_NOISE), self.f_num, self.f_dict, Q(self.i)) # F_torq
+                self.push_back(self.graph, WrenchInc(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i)) # F_wr_inc
 
                 ## Extend the control horizon one timestep further [self.j]
 
-                self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j)) # F_wr_inc
-                self.push_back(self.graph, DisplacementFactor(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num) 
+                self.push_back(self.graph, WrenchInc(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j)) # F_wr_inc
+                self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num) 
                 
                 # command rotation at the end of control horizon (F_rot)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
-                self.push_back(self.graph, PoseOdometryFactor(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                self.push_back(self.graph, PoseDIff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
 
                 # Motion effort (F_motion)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT), self.f_num, self.f_dict, M(self.j))
-                self.push_back(self.graph, ContactMotionFactor(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
+                self.push_back(self.graph, ContactMotion(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
 
                 # fixed grip
-                self.push_back(self.graph, TactileTransformFactor_3D(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
+                self.push_back(self.graph, DispDiff(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
 
                 # deformation energy (F_E)
                 if not self.NO_ENERGY_FACTOR:
-                    self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
+                    self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
                 else:
-                    self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j)) # 2000 --> very weak
+                    self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j)) # 2000 --> very weak
                 
                 # minimum penetration (F_pen)
                 if self.min_type == "force":
@@ -539,12 +539,12 @@ class gtsam_graph:
                         target_threshold = np.clip(target_threshold, 0, 0.7)
                         self.minimum_threshold = np.hstack((np.linspace(self.minimum_threshold[min(k+1, self.control_horizon-1)], target_threshold, self.control_horizon-4)[1:],np.array(5*[target_threshold])))
                         for t in range(max(self.i+1,self.control_horizon+1),self.j+1):
-                            self.push_back(self.graph, PenetrationFactor_2(N(t), C(t), O(t), self.MIN_FORCE, self.minimum_threshold[t-self.j-1]), self.f_num, self.f_dict, J(t))
+                            self.push_back(self.graph, PenHinge(N(t), C(t), O(t), self.MIN_FORCE, self.minimum_threshold[t-self.j-1]), self.f_num, self.f_dict, J(t))
                 else:
                     raise NotImplementedError
                 
                 # contact point's translational location (from the object perspective) must be fixed throughout time (F_oc)
-                self.push_back(self.graph, TactileTransformFactor_3D(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.T_FIXED_, False), self.f_num, self.f_dict, V(self.j))
+                self.push_back(self.graph, DispDiff(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.T_FIXED_, False), self.f_num, self.f_dict, V(self.j))
 
                 # Pose rotation is redundant to represent the point, so fix the rotation to be constant.
                 # Then, z-direction should also be fixed since we assume the ground to be flat. (F_cc)
@@ -578,7 +578,7 @@ class gtsam_graph:
                 remove_idx.append(self.f_dict[V(self.i)])
                 if self.i > self.it + 30 and V(self.i-30) in list(self.f_dict.keys()):
                     remove_idx.append(self.f_dict[V(self.i-30)])
-                    self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-30-1), O(self.i-30), C(self.i-30-1), C(self.i-30), gtsam.Pose3(), self.RX_FIXED__, False), self.f_num, self.f_dict, V(self.i-30))
+                    self.push_back(self.graph, DispDiff(O(self.i-30-1), O(self.i-30), C(self.i-30-1), C(self.i-30), gtsam.Pose3(), self.RX_FIXED__, False), self.f_num, self.f_dict, V(self.i-30))
                 if self.EVEN_PENETRATION: remove_idx.append(self.f_dict[Y(self.i)])
 
                 # The strength of the stikcing factor is determined by the d_opt. 
@@ -600,53 +600,53 @@ class gtsam_graph:
                 # contact line/patch (from the object perspective) must be fixed throughout time
                 if self.mode == 1: # line
                     if np.all(com_rot == np.eye(3)):
-                        self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.RX_FIXED__, False), self.f_num, self.f_dict, V(self.i))
+                        self.push_back(self.graph, DispDiff(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.RX_FIXED__, False), self.f_num, self.f_dict, V(self.i))
                     else:
                         self.rx_fixed[1] = np.clip(1e-2 * self.ct_cov.diagonal()[2]**0.5, self.rx_fixed_clip, 1)
                         RX_FIXED = gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
                                         gtsam.noiseModel.Diagonal.Sigmas(self.rx_fixed))
-                        self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(self.i))
+                        self.push_back(self.graph, DispDiff(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(self.i))
                 elif self.mode == 2: # patch
-                    self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(self.i))
+                    self.push_back(self.graph, DispDiff(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(self.i))
 
                 # tactile deformation measurement
-                self.push_back(self.graph, TactileTransformFactor_3D(N(self.it), O(self.i), G(self.it), G(self.i),
+                self.push_back(self.graph, DispDiff(N(self.it), O(self.i), G(self.it), G(self.i),
                             gtsam.Pose3(gtsam.Rot3(TM_rot), TM_trn), self.DEFORM_NOISE_, False), self.f_num, self.f_dict, D(int(1e5)+self.i))
-                self.push_back(self.graph, TactileTransformFactor_3D(O(max(self.i-10,self.it)), O(self.i), G(max(self.i-10,self.it)), G(self.i),
+                self.push_back(self.graph, DispDiff(O(max(self.i-10,self.it)), O(self.i), G(max(self.i-10,self.it)), G(self.i),
                             gtsam.Pose3.between(gtsam.Pose3(gtsam.Rot3(TM_rot_), TM_trn_),
                                             gtsam.Pose3(gtsam.Rot3(TM_rot), TM_trn)), self.DEFORM_NOISE, False), self.f_num, self.f_dict, D(int(2e5)+self.i))
 
                 # This factor infers the stiffness ratio between different directions.
                 # (similar to StiffnessRatioFactor in the point case)
-                self.push_back(self.graph, WrenchFactor(G(self.i), N(self.i), O(self.i), W(self.i), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(self.i+int(1e5)))
-                self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i))
+                self.push_back(self.graph, Wrench(G(self.i), N(self.i), O(self.i), W(self.i), S(0), self.WRENCH_NOISE), self.f_num, self.f_dict, Q(self.i+int(1e5)))
+                self.push_back(self.graph, WrenchInc(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i))
                 if self.mode == 1:
-                    self.push_back(self.graph, StiffnessRatioLine(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFLINE_NOISE), self.f_num, self.f_dict, Q(self.i))
+                    self.push_back(self.graph, TorqLine(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFLINE_NOISE), self.f_num, self.f_dict, Q(self.i))
 
                 ## Extend the control horizon one timestep further [self.j]
 
-                self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
-                self.push_back(self.graph, DisplacementFactor(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
+                self.push_back(self.graph, WrenchInc(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
+                self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
 
                 # command rotation at the end of control horizon
                 self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(self.j))
-                self.push_back(self.graph, PoseOdometryFactor(G(self.it), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                self.push_back(self.graph, PoseDIff(G(self.it), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
                 
                 # Motion effort
                 if self.ct_cov.diagonal()[2]**0.5 > 0.06:
                     self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT_), self.f_num, self.f_dict, M(self.j))
                 else:
                     self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT___), self.f_num, self.f_dict, M(self.j))
-                self.push_back(self.graph, ContactMotionFactor(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
+                self.push_back(self.graph, ContactMotion(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
                 
                 # fixed grip
-                self.push_back(self.graph, TactileTransformFactor_3D(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
+                self.push_back(self.graph, DispDiff(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
                 
                 # deformation energy
                 if not self.NO_ENERGY_FACTOR:
-                    self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
+                    self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
                 else:
-                    self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j))
+                    self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 2000), self.f_num, self.f_dict, I(self.j))
                 
                 # minimum penetration
                 if self.min_type == "force":
@@ -655,16 +655,16 @@ class gtsam_graph:
                         target_threshold = np.clip(target_threshold, 0, 0.7)
                         self.minimum_threshold = np.hstack((np.linspace(self.minimum_threshold[min(k+1, self.control_horizon-1)], target_threshold, self.control_horizon-4)[1:],np.array(5*[target_threshold])))
                         for t in range(self.i+1,self.j+1):
-                            self.push_back(self.graph, PenetrationFactor_2(N(t), C(t), O(t), self.MIN_FORCE, self.minimum_threshold[t-self.j-1]), self.f_num, self.f_dict, J(t))
+                            self.push_back(self.graph, PenHinge(N(t), C(t), O(t), self.MIN_FORCE, self.minimum_threshold[t-self.j-1]), self.f_num, self.f_dict, J(t))
                 else:
                     raise NotImplementedError
 
                 # even penetration along line/patch
                 if self.EVEN_PENETRATION:
                     if self.mode == 1:
-                        self.push_back(self.graph, NOCFactor(N(self.j), O(self.j), C(self.j), self.RYRZ_FIXED), self.f_num, self.f_dict, Y(self.j))
+                        self.push_back(self.graph, PenEven(N(self.j), O(self.j), C(self.j), self.RYRZ_FIXED), self.f_num, self.f_dict, Y(self.j))
                     elif self.mode == 2:
-                        self.push_back(self.graph, NOCFactor(N(self.j), O(self.j), C(self.j), self.R_FIXED_), self.f_num, self.f_dict, Y(self.j))
+                        self.push_back(self.graph, PenEven(N(self.j), O(self.j), C(self.j), self.R_FIXED_), self.f_num, self.f_dict, Y(self.j))
 
                 # contact line/patch (from the object perspective) must be fixed throughout time
                 # however in the planning future timesteps, if the contact estimate is inconfident,
@@ -674,11 +674,11 @@ class gtsam_graph:
                     if self.OOCC_RELIEVE:
                         self.rx_fixed[1] = np.clip(1 * self.ct_cov.diagonal()[2]**0.5, 0.01, 1)
                         RX_FIXED = gtsam.noiseModel.Diagonal.Sigmas(self.rx_fixed)
-                        self.push_back(self.graph, TactileTransformFactor_3D(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(self.j))
+                        self.push_back(self.graph, DispDiff(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(self.j))
                     else:                
-                        self.push_back(self.graph, TactileTransformFactor_3D(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.RX_FIXED_, False), self.f_num, self.f_dict, V(self.j))
+                        self.push_back(self.graph, DispDiff(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.RX_FIXED_, False), self.f_num, self.f_dict, V(self.j))
                 elif self.mode == 2:
-                    self.push_back(self.graph, TactileTransformFactor_3D(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(self.j))
+                    self.push_back(self.graph, DispDiff(O(self.j-1), O(self.j), C(self.j-1), C(self.j), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(self.j))
 
                 # The contact line always stays on the environment surface
                 self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.j-1), C(self.j), gtsam.Pose3(), self.P_FIXED_), self.f_num, self.f_dict, X(self.j))
@@ -706,7 +706,7 @@ class gtsam_graph:
         values.insert(W(self.i), self.wr_ + self.st[:6]*(dc-dc_))
         values.insert(C(self.i), self.ct_)
         values.insert(S(0), self.st)
-        factor = StiffnessRatioFactor6(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFRATIO_NOISE)
+        factor = TorqPoint(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFRATIO_NOISE)
         self.sr_before_update = factor.whitenedError(values)[:3]
 
         try: 
@@ -819,7 +819,7 @@ class gtsam_graph:
 
         # Although the gripper-object pose is changed, the relative deformation should remain the same.
         self.push_back(self.graph, gtsam.BetweenFactorVector(O(int(1e5)+self.i-1), O(int(1e5)+self.i), np.zeros(6), self.ALL_FIXED_), self.f_num)
-        self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i))
+        self.push_back(self.graph, WrenchInc(O(int(1e5)+self.i-1), O(int(1e5)+self.i), W(self.i-1), W(self.i), S(0), self.WRENCH_PREDICT_NOISE_WEAK, False), self.f_num, self.f_dict, I(int(1e5)+self.i))
 
         # The contact line should lie on the object bottom surface
         self.push_back(self.graph, gtsam.BetweenFactorPose3(O(self.i), C(self.i), gtsam.Pose3(), self.A_FIXED), self.f_num)
@@ -827,7 +827,7 @@ class gtsam_graph:
             # in the point contact mode we fixed the rotation of the contact,
             # but in the line contact, we should relieve the constrain on Rz (yaw) direction rotation.
             self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.RZ_FIXED), self.f_num)
-            self.push_back(self.graph, StiffnessRatioLine(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFLINE_NOISE), self.f_num, self.f_dict, Q(self.i))
+            self.push_back(self.graph, TorqLine(G(self.i), W(self.i), C(self.i), S(0), self.STIFFNESS_PRIOR_[:6], self.STIFFLINE_NOISE), self.f_num, self.f_dict, Q(self.i))
         elif self.mode == 2: # line -> patch
             self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.ALL_FIXED_), self.f_num)            
         
@@ -845,35 +845,35 @@ class gtsam_graph:
         for t in range(self.i+1, self.j+1):
             self.push_back(self.graph, gtsam.PriorFactorPose3(U(t), gtsam.Pose3(), self.CONTROL_EFFORT__), self.f_num, self.f_dict, M(t))
             self.push_back(self.graph, gtsam.PriorFactorPose3(T(t), gtsam.Pose3(), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(t))
-            self.push_back(self.graph, PoseOdometryFactor(G(self.it), G(t), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
+            self.push_back(self.graph, PoseDIff(G(self.it), G(t), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
 
             if self.mode == 1:
                 if self.OOCC_RELIEVE:
                     self.rx_fixed[1] = 1
                     RX_FIXED = gtsam.noiseModel.Diagonal.Sigmas(self.rx_fixed)
-                    self.push_back(self.graph, TactileTransformFactor_3D(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(t))
+                    self.push_back(self.graph, DispDiff(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), RX_FIXED, False), self.f_num, self.f_dict, V(t))
                 else:                
-                    self.push_back(self.graph, TactileTransformFactor_3D(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), self.RX_FIXED_, False), self.f_num, self.f_dict, V(t))
+                    self.push_back(self.graph, DispDiff(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), self.RX_FIXED_, False), self.f_num, self.f_dict, V(t))
 
                 self.push_back(self.graph, gtsam.BetweenFactorPose3(C(t-1), C(t), gtsam.Pose3(), self.P_FIXED_), self.f_num, self.f_dict, X(t))
                 self.push_back(self.graph, gtsam.BetweenFactorPose3(C(t-1), C(t), gtsam.Pose3(), self.STICK_), self.f_num, self.f_dict, A(t))
                 if self.EVEN_PENETRATION:
-                    self.push_back(self.graph, NOCFactor(N(t), O(t), C(t), self.RYRZ_FIXED), self.f_num, self.f_dict, Y(t))
+                    self.push_back(self.graph, PenEven(N(t), O(t), C(t), self.RYRZ_FIXED), self.f_num, self.f_dict, Y(t))
             elif self.mode == 2:
-                self.push_back(self.graph, TactileTransformFactor_3D(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(t))
+                self.push_back(self.graph, DispDiff(O(t-1), O(t), C(t-1), C(t), gtsam.Pose3(), self.ALL_FIXED__, False), self.f_num, self.f_dict, V(t))
                 if self.EVEN_PENETRATION:
-                    self.push_back(self.graph, NOCFactor(N(t), O(t), C(t), self.R_FIXED_), self.f_num, self.f_dict, Y(t))
+                    self.push_back(self.graph, PenEven(N(t), O(t), C(t), self.R_FIXED_), self.f_num, self.f_dict, Y(t))
                 if t == self.j:
                     self.push_back(self.graph, gtsam.BetweenFactorPose3(C(t-1), C(t), gtsam.Pose3(), self.P_FIXED_), self.f_num, self.f_dict, X(t))
                     self.push_back(self.graph, gtsam.BetweenFactorPose3(C(t-1), C(t), gtsam.Pose3(), self.STICK_), self.f_num, self.f_dict, A(t))
         
-        self.push_back(self.graph, WrenchPredictFactor(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
-        self.push_back(self.graph, DisplacementFactor(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
+        self.push_back(self.graph, WrenchInc(O(int(1e5)+self.j-1), O(int(1e5)+self.j), W(self.j-1), W(self.j), S(0), self.WRENCH_PREDICT_NOISE_STRONG, False), self.f_num, self.f_dict, I(int(1e5)+self.j))
+        self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
         self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT__), self.f_num, self.f_dict, M(self.j))
-        self.push_back(self.graph, ContactMotionFactor(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
-        self.push_back(self.graph, TactileTransformFactor_3D(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
-        self.push_back(self.graph, WrenchEnergyFactor(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
-        self.push_back(self.graph, PenetrationFactor_2(N(self.j), C(self.j), O(self.j), self.MIN_FORCE, self.minimum_threshold[-1]), self.f_num, self.f_dict, J(self.j))
+        self.push_back(self.graph, ContactMotion(G(self.j-1), G(self.j), C(self.j-1), U(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, E(self.j))
+        self.push_back(self.graph, DispDiff(N(self.j-1), N(self.j), G(self.j-1), G(self.j), gtsam.Pose3(), self.ALL_FIXED_, False), self.f_num, self.f_dict, Z(self.j))
+        self.push_back(self.graph, EnergyElastic(W(self.j), S(0), 10), self.f_num, self.f_dict, I(self.j))
+        self.push_back(self.graph, PenHinge(N(self.j), C(self.j), O(self.j), self.MIN_FORCE, self.minimum_threshold[-1]), self.f_num, self.f_dict, J(self.j))
 
         self.initial_estimate.insert(G(self.j), self.grp)
         self.initial_estimate.insert(N(self.j), self.nob)
@@ -947,296 +947,6 @@ class gtsam_graph:
 
     def print_graph(self):
         print(self.isam.getFactorsUnsafe())
-
-class gtsam_graph_simulator:
-    def __init__(self,
-                STIFFNESS= 1e0*np.array([8/180*np.pi, 4.01/180*np.pi, 4/180*np.pi, 1, 2.01, 2]),
-                MU = 0.15,
-                ALPHA = np.zeros(6),
-                OU_sigma = np.array([1e-3, 1e-3, 1e-3, 2e-1, 5e-2, 5e-2]),
-                OU_theta = 0.1,
-                normal_vec = np.array([0,0,1])):
-
-        self.normal_vec = normal_vec
-
-        self.ALPHA = ALPHA
-
-        self.ALL_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-8, 1e-8, 1e-8, 1e-6, 1e-6, 1e-6]))
-        self.T_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([np.inf, np.inf, np.inf, 1e-6, 1e-6, 1e-6]))
-        self.RX_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([np.inf, 1e-8, 1e-8, 1e-6, 1e-6, 1e-6]))
-        self.RX_FIXED_ = gtsam.noiseModel.Diagonal.Sigmas(np.array([np.inf, 1e-8, 1e-8, np.inf, np.inf, np.inf]))
-        self.RZ_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-8, 1e-8, np.inf, 1e-8, 1e-8, 1e-8]))
-        self.R_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-8, 1e-8, 1e-8, np.inf, np.inf, np.inf]))
-        self.P_FIXED = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-8, 1e-8, 1e-8, np.inf, np.inf, 1e-8]))
-        self.P_FIXED_ = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-8, 1e-8, np.inf, np.inf, np.inf, 1e-8]))
-        self.STICK = gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
-            gtsam.noiseModel.Diagonal.Sigmas(np.array([np.inf, np.inf, np.inf, 4e-2, 4e-2, np.inf])))
-        self.STICK_ = gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
-            gtsam.noiseModel.Diagonal.Sigmas(np.array([np.inf, np.inf, 8e-4, 4e-2, 4e-2, np.inf])))
-        self.STIFFNESS = STIFFNESS
-        self.STIFFNESS_NOISE = gtsam.noiseModel.Diagonal.Sigmas(self.STIFFNESS)
-
-        self.ENERGY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4]))
-        self.LEN_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-2]))
-        self.COULOMB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-6]))
-        self.MU = MU
-
-        self.OU_noise = np.zeros(6)
-        self.OU_sigma = OU_sigma
-        self.OU_theta = OU_theta
-
-        self.mode = 0
-
-    def push_back(self, graph, f, f_num, f_dict=None, f_id=None):
-        ## adds a new factor to the graph and save the factor number in a dictionary ##
-        graph.push_back(f)
-        if f_dict != None and f_id != None:
-            f_dict[f_id] = f_num[0]
-        f_num[0] += 1
-
-    def restart(self, cart_init, grasp_pose, height, contact_point, contact_linevec):
-        ## Start/restart a graph
-        self.cart_init = cart_init.copy()
-        self.grasp_pose = grasp_pose
-        self.height = height
-        self.contact_point = contact_point
-        self.contact_linevec = contact_linevec
-
-        self.G0_world = gtsam.Pose3(gtsam.Rot3(R.from_quat(cart_init[3:]).as_matrix()), cart_init[:3])
-        self.r_g_init = R.from_quat(self.cart_init[3:])
-        self.gt = np.zeros(6)
-
-        self.T_og = np.eye(4)
-        self.T_og[:3,:3] = R.from_euler('zyx', self.grasp_pose[3:]).as_matrix()
-        self.T_og[:3,-1] = np.array([0,0,self.height]) + self.grasp_pose[:3]
-
-        self.touch = False
-        self.error_raise = False
-
-        self.mode = 0
-
-        if np.all(self.cart_init == np.array([0,0,0,0,0,0,1])):
-            self.R_go = np.eye(3)
-        else:
-            R_g = self.r_g_init.as_matrix()
-            v = np.cross(np.array([0, 0, 1]), np.linalg.inv(R_g) @ self.normal_vec)
-            c = np.dot(np.array([0, 0, 1]), np.linalg.inv(R_g) @ self.normal_vec)
-            s = np.linalg.norm(v)
-            kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-            self.R_go = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
-
-        ## Resets the graph
-        self.reset_graph()
-
-    def reset_graph(self):
-
-        self.G_0 = gtsam.Pose3()
-
-        self.i = 0 # current timestep
-
-        parameters = gtsam.ISAM2Params()
-        parameters.setOptimizationParams(gtsam.ISAM2DoglegParams()) # enable this to use Powell's Dogleg optimizer
-        parameters.setRelinearizeThreshold(0.01)
-        parameters.setRelinearizeSkip(1)
-
-        self.isam = gtsam.ISAM2(parameters)
-        self.graph = gtsam.NonlinearFactorGraph()
-        self.initial_estimate = gtsam.Values()
-        self.f_num = [0]
-        self.f_dict = {}
-
-        ## Factors for the initial timestep ##
-        self.push_back(self.graph, gtsam.PriorFactorPose3(G(0), self.G_0, self.ALL_FIXED), self.f_num, self.f_dict, P(0))
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(N(0), G(0),
-                    gtsam.Pose3(gtsam.Rot3(self.T_og[:3,:3]), self.T_og[:3,-1]), self.ALL_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(N(0), O(0), gtsam.Pose3(), self.ALL_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(N(0), Q(0), gtsam.Pose3(), self.ALL_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(O(0), C(0), gtsam.Pose3(gtsam.Rot3(), self.contact_point), self.T_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(Q(0), D(0), gtsam.Pose3(gtsam.Rot3(), self.contact_point), self.T_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.PriorFactorPose3(C(0), gtsam.Pose3(self.R_go), self.R_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(C(0), D(0), gtsam.Pose3(), self.P_FIXED), self.f_num)
-
-        ## Initial guesses ##
-        self.initial_estimate.insert(G(0), gtsam.Pose3())
-        self.initial_estimate.insert(N(0), gtsam.Pose3(gtsam.Rot3(), np.array([0, 0, -self.height])))
-        self.initial_estimate.insert(O(0), gtsam.Pose3(gtsam.Rot3(), np.array([0, 0, -self.height])))
-        self.initial_estimate.insert(Q(0), gtsam.Pose3(gtsam.Rot3(), np.array([0, 0, -self.height])))
-        self.initial_estimate.insert(C(0), gtsam.Pose3(gtsam.Rot3(), np.array([0, 0, -self.height])))
-        self.initial_estimate.insert(D(0), gtsam.Pose3(gtsam.Rot3(), np.array([0, 0, -self.height])))
-
-        ## Update the graph ##
-        self.isam.update(self.graph, self.initial_estimate)
-        self.graph.resize(0)
-        self.initial_estimate.clear()
-        
-        ## Get current estimate after the update ##
-        self.current_estimate = self.isam.calculateEstimate()
-        self.grp = self.current_estimate.atPose3(G(0))
-        self.nob = self.current_estimate.atPose3(N(0))
-        self.obj = self.current_estimate.atPose3(O(0))
-        self.qbj = self.current_estimate.atPose3(Q(0))
-        self.ct = self.current_estimate.atPose3(C(0))
-        self.ct_ = self.current_estimate.atPose3(D(0))
-        self.obj_0 = self.current_estimate.atPose3(O(0))
-        self.grp_0 = self.current_estimate.atPose3(G(0))
-        #self.v, self.w, self.x, self.y = np.zeros(1), np.zeros(1), np.zeros(1), np.zeros(1)
-
-    def add_new(self, cart_new):
-        # Adds new measurements
-
-        self.cart = cart_new.copy()
-
-        # GRIPPER #
-        xyz_world = self.cart[:3] - self.cart_init[:3]
-        self.r_g = R.from_quat(self.cart[3:])
-        xyz = self.r_g_init.inv().as_matrix().dot(xyz_world)
-        ypr = (self.r_g_init.inv() * self.r_g).as_euler('zyx')
-        self.gt = np.hstack((xyz, ypr))
-        g_rot = R.from_euler('zyx', self.gt[3:]).as_matrix()
-        g_trn = self.gt[:3]
-
-        self.i += 1
-
-        remove_idx = []
-        if A(self.i-1) in list(self.f_dict.keys()): remove_idx.append(self.f_dict[A(self.i-1)])
-        #if M(self.i-1) in list(self.f_dict.keys()): remove_idx.append(self.f_dict[M(self.i-1)])
-
-        self.push_back(self.graph, TactileTransformFactor_3D(O(0), O(self.i-1), G(0), G(self.i-1),
-            (self.obj_0.inverse().compose(self.grp_0)).inverse().compose(self.obj.inverse().compose(self.grp)), self.ALL_FIXED, False), self.f_num)
-    
-        ####### SIMULATE ONE STEP #######
-        self.push_back(self.graph, gtsam.PriorFactorPose3(G(self.i), gtsam.Pose3(gtsam.Rot3(g_rot), g_trn), self.ALL_FIXED), self.f_num)
-        self.push_back(self.graph, TactileTransformFactor_3D(N(self.i-1), N(self.i), G(self.i-1), G(self.i), gtsam.Pose3(), self.ALL_FIXED, False), self.f_num)
-        
-        self.push_back(self.graph, TactileTransformFactor_3D_nonlinear(O(0), O(self.i), G(0), G(self.i), self.STIFFNESS**-2, self.ALPHA), self.f_num, self.f_dict, A(self.i))
-        self.push_back(self.graph, TactileTransformFactor_3D_nonlinear(Q(0), Q(self.i), G(0), G(self.i), self.STIFFNESS**-2, self.ALPHA), self.f_num)
-
-        if self.mode == 0:
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.T_FIXED, False), self.f_num)
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i), Q(self.i), C(self.i), D(self.i), gtsam.Pose3(), self.T_FIXED, False), self.f_num)
-        elif self.mode == 1:
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.RX_FIXED, False), self.f_num)
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i), Q(self.i), C(self.i), D(self.i), gtsam.Pose3(), self.RX_FIXED, False), self.f_num)
-        if not self.touch:
-            self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.R_FIXED), self.f_num)
-            self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i), D(self.i), gtsam.Pose3(), self.R_FIXED), self.f_num)
-        else:
-            if self.mode == 0:
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.P_FIXED), self.f_num)
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i), D(self.i), gtsam.Pose3(), self.P_FIXED), self.f_num)
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.STICK), self.f_num)
-            elif self.mode == 1:
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.P_FIXED_), self.f_num)
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i), D(self.i), gtsam.Pose3(), self.P_FIXED_), self.f_num)
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.STICK_), self.f_num)                
-
-        #self.push_back(self.graph, EnergyWOFFactor(Q(0), Q(self.i), G(0), G(self.i), V(self.i), self.STIFFNESS, self.ENERGY_NOISE), self.f_num)
-        #self.push_back(self.graph, EnergyWFFactor(O(0), O(self.i), G(0), G(self.i), W(self.i), self.STIFFNESS, self.ENERGY_NOISE), self.f_num)
-        #self.push_back(self.graph, LenPenFactor_2(N(self.i), C(self.i), O(self.i), X(self.i), self.LEN_NOISE), self.f_num)
-        #self.push_back(self.graph, LenSlipFactor(C(self.i), D(self.i), Y(self.i), self.LEN_NOISE), self.f_num)
-        #self.push_back(self.graph, CoulombFactor(V(self.i), W(self.i), X(self.i), Y(self.i), self.MU, self.COULOMB_NOISE), self.f_num, self.f_dict, M(self.i))
-
-        self.initial_estimate.insert(G(self.i), self.grp)
-        self.initial_estimate.insert(N(self.i), self.nob)
-        self.initial_estimate.insert(O(self.i), self.obj)
-        self.initial_estimate.insert(Q(self.i), self.qbj)
-        self.initial_estimate.insert(C(self.i), self.ct)
-        self.initial_estimate.insert(D(self.i), self.ct_)
-        #self.initial_estimate.insert(V(self.i), self.v)
-        #self.initial_estimate.insert(W(self.i), self.w)
-        #self.initial_estimate.insert(X(self.i), self.x)
-        #self.initial_estimate.insert(Y(self.i), self.y)
-
-        self.isam.update(self.graph, self.initial_estimate, gtsam.KeyVector(remove_idx))
-        self.graph.resize(0)
-        self.initial_estimate.clear()
-
-        self.current_estimate = self.isam.calculateEstimate()
-        self.grp = self.current_estimate.atPose3(G(self.i))
-        self.nob = self.current_estimate.atPose3(N(self.i))
-        self.obj = self.current_estimate.atPose3(O(self.i))
-        self.qbj = self.current_estimate.atPose3(Q(self.i))
-        self.ct = self.current_estimate.atPose3(C(self.i))
-        self.ct_ = self.current_estimate.atPose3(D(self.i))
-        #self.v = self.current_estimate.atVector(V(self.i))
-        #self.w = self.current_estimate.atVector(W(self.i))
-        #self.x = self.current_estimate.atVector(X(self.i))
-        #self.y = self.current_estimate.atVector(Y(self.i))
-
-        if self.mode == 0 and self.ct.rotation().inverse().compose(self.obj.rotation()).rotate(self.contact_linevec)[2] < 0:
-            self.cf_transition(self.contact_linevec)
-            print("simulator transitioned!")
-
-        #self.gg_ = (self.obj_0.inverse().compose(self.grp_0)).inverse().compose(self.obj.inverse().compose(self.grp))
-        self.gg_ = (self.nob.inverse().compose(self.grp)).inverse().compose(self.obj.inverse().compose(self.grp))
-        if self.touch:
-            self.OU_noise[[0,1,2,4,5]] += - self.OU_theta*self.OU_noise[[0,1,2,4,5]]
-            self.OU_noise += self.OU_sigma*np.random.normal(size=6)
-
-    def cf_transition(self, line_vec):
-
-        self.i += 1
-        self.mode += 1
-        print(self.i)
-    
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(G(self.i-1), G(self.i), gtsam.Pose3(), self.ALL_FIXED), self.f_num)
-        self.push_back(self.graph, TactileTransformFactor_3D(N(self.i-1), N(self.i), G(self.i-1), G(self.i), gtsam.Pose3(), self.ALL_FIXED, False), self.f_num)
-        self.push_back(self.graph, TactileTransformFactor_3D_nonlinear(O(0), O(self.i), G(0), G(self.i), self.STIFFNESS**-2, self.ALPHA), self.f_num, self.f_dict, A(self.i))
-        self.push_back(self.graph, TactileTransformFactor_3D_nonlinear(Q(0), Q(self.i), G(0), G(self.i), self.STIFFNESS**-2, self.ALPHA), self.f_num)
-        
-        if self.mode == 1:
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.T_FIXED, False), self.f_num)
-            self.push_back(self.graph, TactileTransformFactor_3D(O(self.i), Q(self.i), C(self.i), D(self.i), gtsam.Pose3(), self.RX_FIXED, False), self.f_num)
-            if np.dot(line_vec, self.ct.rotation().column(1)) < 0:
-                line_vec *= -1
-            rot_mat = np.zeros((3,3))
-            rot_mat[:,0] = line_vec
-            rot_mat[:,1] = np.array([-line_vec[1],line_vec[0],0])
-            rot_mat[:,1] /= np.linalg.norm(rot_mat[:,1])
-            rot_mat[:,2] = np.cross(rot_mat[:,0], rot_mat[:,1])
-            self.push_back(self.graph, gtsam.BetweenFactorPose3(O(self.i), C(self.i), gtsam.Pose3(gtsam.Rot3(rot_mat), np.zeros(3)), self.RX_FIXED_), self.f_num)
-        
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), self.RZ_FIXED), self.f_num)
-        self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i), D(self.i), gtsam.Pose3(), self.P_FIXED_), self.f_num)
-
-        #self.push_back(self.graph, EnergyWOFFactor(Q(0), Q(self.i), G(0), G(self.i), V(self.i), self.STIFFNESS, self.ENERGY_NOISE), self.f_num)
-        #self.push_back(self.graph, EnergyWFFactor(O(0), O(self.i), G(0), G(self.i), W(self.i), self.STIFFNESS, self.ENERGY_NOISE), self.f_num)
-        #self.push_back(self.graph, LenPenFactor_2(N(self.i), C(self.i), O(self.i), X(self.i), self.LEN_NOISE), self.f_num)
-        #self.push_back(self.graph, LenSlipFactor(C(self.i), D(self.i), Y(self.i), self.LEN_NOISE), self.f_num)
-        #self.push_back(self.graph, CoulombFactor(V(self.i), W(self.i), X(self.i), Y(self.i), self.MU, self.COULOMB_NOISE), self.f_num, self.f_dict, M(self.i))
-
-        self.initial_estimate.insert(G(self.i), self.grp)
-        self.initial_estimate.insert(N(self.i), self.nob)
-        self.initial_estimate.insert(O(self.i), self.obj)
-        self.initial_estimate.insert(Q(self.i), self.qbj)
-        self.initial_estimate.insert(C(self.i), self.ct)
-        self.initial_estimate.insert(D(self.i), self.ct_)
-        #self.initial_estimate.insert(V(self.i), self.v)
-        #self.initial_estimate.insert(W(self.i), self.w)
-        #self.initial_estimate.insert(X(self.i), self.x)
-        #self.initial_estimate.insert(Y(self.i), self.y)
-
-        self.isam.update(self.graph, self.initial_estimate)
-        self.graph.resize(0)
-        self.initial_estimate.clear()
-
-        self.current_estimate = self.isam.calculateEstimate()
-        self.grp = self.current_estimate.atPose3(G(self.i))
-        self.nob = self.current_estimate.atPose3(N(self.i))
-        self.obj = self.current_estimate.atPose3(O(self.i))
-        self.qbj = self.current_estimate.atPose3(Q(self.i))
-        self.ct = self.current_estimate.atPose3(C(self.i))
-        self.ct_ = self.current_estimate.atPose3(D(self.i))
-        #self.v = self.current_estimate.atVector(V(self.i))
-        #self.w = self.current_estimate.atVector(W(self.i))
-        #self.x = self.current_estimate.atVector(X(self.i))
-        #self.y = self.current_estimate.atVector(Y(self.i))
-
-        #self.gg_ = (self.obj_0.inverse().compose(self.grp_0)).inverse().compose(self.obj.inverse().compose(self.grp))
-        self.gg_ = (self.nob.inverse().compose(self.grp)).inverse().compose(self.obj.inverse().compose(self.grp))
-        if self.touch:
-            self.OU_noise[[0,1,2,4,5]] += - self.OU_theta*self.OU_noise[[0,1,2,4,5]]
-            self.OU_noise += self.OU_sigma*np.random.normal(size=6)
 
 def main():
     print("start gtsam graph")

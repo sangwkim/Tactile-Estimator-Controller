@@ -1,10 +1,15 @@
+/*
+p1 (G(i-1)), p2 (G(i)), p3 (C(i-1)) --> Local Motion at the Estimated Point Contact
+p4 --> Variable simply representing the above Local Motion
+*/
+
 #pragma once
 
 #include <ostream>
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/base/Lie.h>
 
-namespace gtsam_packing {
+namespace gtsam_custom_factors {
 
 class ContactMotion: public gtsam::NoiseModelFactor4<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3> {
 
@@ -58,4 +63,4 @@ public:
 
 }; // \class ContactMotion
 
-} /// namespace gtsam_packing
+} /// namespace gtsam_custom_factors

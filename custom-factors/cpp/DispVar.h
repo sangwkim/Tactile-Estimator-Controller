@@ -9,7 +9,7 @@ d = CanonicalCoord( ((pn^(-1) * pg)^(-1) * (po^(-1) * pg)) )
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/base/Lie.h>
 
-namespace gtsam_packing {
+namespace gtsam_custom_factors {
 
 class DispVar: public gtsam::NoiseModelFactor4<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector6> {
 
@@ -48,4 +48,4 @@ public:
 
 }; // \class DispVar
 
-} /// namespace gtsam_packing
+} /// namespace gtsam_custom_factors
