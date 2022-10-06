@@ -1,4 +1,4 @@
-name: gtsam
+name: SimulTact
 channels:
   - pytorch
   - defaults
@@ -335,12 +335,8 @@ dependencies:
   - zope.interface=5.1.2=py38h7b6447c_0
   - zstd=1.4.5=h9ceee32_0
   - pip:
-    - gtsam==4.1.0
-    - gtsam-example==0.0.1
-    - gtsam-packing==0.0.1
     - imageio-ffmpeg==0.4.4
     - numpy-stl==2.17.1
     - opencv-python==4.5.1.48
     - python-utils==3.3.3
     - shapely==1.7.1
-prefix: /home/devicereal/anaconda3/envs/gtsam

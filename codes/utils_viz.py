@@ -8,7 +8,6 @@ import imageio
 import sys
 sys.path = sys.path[::-1]
 import cv2
-import gtsam
 from stl import mesh
 import copy
 

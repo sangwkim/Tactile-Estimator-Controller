@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 plt.ion()
 matplotlib.use('TkAgg')
 import numpy as np
-import gtsam
 from utils_viz import visualization
 from utils_gtsam import *
 from scipy.spatial.transform import Rotation as R
