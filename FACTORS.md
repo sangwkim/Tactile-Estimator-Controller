@@ -61,4 +61,6 @@ In other words, the control input is the same as the local motion of the gripper
 
 This factor is imposed when we want the penetration to be evenly distribution along the contact line or contact patch.
 
-## DispVar, EnergyElastic, TorqPoint, TorqLine, Wrench, WrenchInc (description to be added)
+## DispVar, EnergyElastic, TorqPoint, TorqLine, Wrench, WrenchInc
+
+(description to be added)
