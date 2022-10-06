@@ -131,6 +131,7 @@ set_target_properties(
              LIBRARY_OUTPUT_DIRECTORY "${GTSAM_MODULE_PATH}/${PROJECT_NAME}"
              DEBUG_POSTFIX "" # Otherwise you will have a wrong name
              RELWITHDEBINFO_POSTFIX "" # Otherwise you will have a wrong name
+             LINKER_LANGUAGE CXX
 )
 
 # ##############################################################################
