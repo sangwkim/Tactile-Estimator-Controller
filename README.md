@@ -2,20 +2,15 @@
 
 This repository contains the source code of the paper "Simultaneous Tactile Estimation and Control of Extrinsic Contact". You can run the experiment on a real robot or just simply run a replay of the sample dataset.
 
-# gtsam-custom-factors
-
-The library including the custom factors.
-
 ## Setup Manual
 
-This manual assumes using the conda environment with Python 3.8.5, but you can use another environment or Python version (>=3.6). If you are using another environment, some details might be different.
+- Clone the repository and create a virtual environment.
 
-- Setup the conda environment
-
-  ```   
-  conda create -n "gtsam" python=3.8.5
-  conda activate gtsam
-  conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
+  ```
+  cd <project foler>
+  git clone --recursive git@github.com:sangwkim/Tactile-Estimator-Controller.git
+  cd Tactile-Estimator-Controller
+  conda env create -f conda_env.yml
   ```
   
 - Install prerequisites for the GTSAM library
@@ -41,6 +36,7 @@ This manual assumes using the conda environment with Python 3.8.5, but you can u
 - Install GTSAM
 
   ```
+  cd <project folder>
   git clone https://github.com/borglab/gtsam.git
   git checkout 69a3a75
   cd gtsam
@@ -56,36 +52,38 @@ This manual assumes using the conda environment with Python 3.8.5, but you can u
 - Install custom factors
 
   ```
-  git clone https://github.com/sangwkim/gtsam-custom-factors.git
-  cd gtsam-custom-factors
+  cd <project folder>/Tactile-Estimator-Controller/custom-factors
   mkdir build
   cd build
-  cmake .. -DCMAKE_PREFIX_PATH="/home/sangwoon/github/gtsam/build/install"
+  cmake .. -DCMAKE_PREFIX_PATH="<project folder>/gtsam/build/install"
   make
   make python-install
   ```
 
 ## Further details
 
-For instruction on how to use this template, please refer to the [tutorial](TUTORIAL.md) and also https://dongjing3309.github.io/files/gtsam-tutorial.pdf. For brief explanation about each custom factor, please refer to the [FACTORS.md](FACTORS.md)
+For brief explanation about each custom factor, please refer to the [FACTORS.md](FACTORS.md)
 
+## Directories/Codes description
 
-## Codes description
-
-- codes_real_experiments/main_optimal.py:
-  - main file that is used when doing the real experiments
-- codes_real_experiments/packing_environment_optimal.py:
-  - contains classes and functions that are relevant to robot configurations and control
-- codes_real_experiments/tactile_module_optimal.py:
+- custom-factors/:
+  - contains a library of custom factors that are used in the paper
+- sample_data/:
+  - contains a sample dataset for the replay
+- weights/:
+  - contains a neural network that is used for the tactile module
+- codes/tactile_module.py:
   - contains a class for the tactile sensors
-- codes_real_experiments/utils_gtsam_optimal.py:
+- codes/utils_gtsam.py:
   - contains a class for the factor graph models
-- codes_real_experiments/FG_simulation.py:
-  - runs an example for the factor graph simulator
-- codes_real_experiments/replay_data.py:
-  - replay the data that were collected in the real experiments
-- codes_real_experiments/utils_viz.py:
+- codes/replay.py:
+  - replay the sample data that were collected in the real experiments
+- codes/utils_viz.py:
   - contains a class for visualization
+- codes/run.py:
+  - main file that runs the real experiment. You need to setup hardware to run this. Otherwise, if just running the replay, this file is not necessary.
+- codes/packing_environment.py:
+  - contains classes and functions that are relevant to robot configurations and control. This is also not necessary if you are not running this on real hardware
 
 ## Manual for running a real experiments
 
