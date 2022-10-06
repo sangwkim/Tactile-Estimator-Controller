@@ -2,7 +2,7 @@
 
 import numpy as np
 import gtsam
-from gtsam_custom_factors import DispDiff, PoseDIff, TorqPoint, ContactMotion, TorqLine, PenEven, Wrench, PenHinge
+from gtsam_custom_factors import DispDiff, PoseDiff, TorqPoint, ContactMotion, TorqLine, PenEven, Wrench, PenHinge
 from gtsam_custom_factors import WrenchInc, DispVar, EnergyElastic
 from scipy.spatial.transform import Rotation as R
 from gtsam.symbol_shorthand import G, N, O, C, T, U, S, W  # Symbols for Variables / G: Gripper, N: Object (rest), O: Object (equil), C: Contact, T: Command Rotation, U: Control Input, S: Grasp Parameters, W: Wrench
@@ -336,7 +336,7 @@ class gtsam_graph:
 
             # F_rot
             self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
-            self.push_back(self.graph, PoseDIff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+            self.push_back(self.graph, PoseDiff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
             
             # F_motion
             self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT____), self.f_num, self.f_dict, M(self.j))
@@ -516,7 +516,7 @@ class gtsam_graph:
                 
                 # command rotation at the end of control horizon (F_rot)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
-                self.push_back(self.graph, PoseDIff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                self.push_back(self.graph, PoseDiff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
 
                 # Motion effort (F_motion)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT), self.f_num, self.f_dict, M(self.j))
@@ -630,7 +630,7 @@ class gtsam_graph:
 
                 # command rotation at the end of control horizon
                 self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(self.j))
-                self.push_back(self.graph, PoseDIff(G(self.it), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                self.push_back(self.graph, PoseDiff(G(self.it), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
                 
                 # Motion effort
                 if self.ct_cov.diagonal()[2]**0.5 > 0.06:
@@ -845,7 +845,7 @@ class gtsam_graph:
         for t in range(self.i+1, self.j+1):
             self.push_back(self.graph, gtsam.PriorFactorPose3(U(t), gtsam.Pose3(), self.CONTROL_EFFORT__), self.f_num, self.f_dict, M(t))
             self.push_back(self.graph, gtsam.PriorFactorPose3(T(t), gtsam.Pose3(), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(t))
-            self.push_back(self.graph, PoseDIff(G(self.it), G(t), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
+            self.push_back(self.graph, PoseDiff(G(self.it), G(t), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
 
             if self.mode == 1:
                 if self.OOCC_RELIEVE:
