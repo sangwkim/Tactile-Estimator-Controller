@@ -59,6 +59,14 @@ This repository contains the source code of the paper "Simultaneous Tactile Esti
   make
   make python-install
   ```
+## Replay of the sample dataset
+
+You can replay the sample dataset by running codes/replay.py
+
+  ```
+  cd <project folder>/Tactile-Estimator-Controller/codes
+  python replay.py --dataset_name 'rectangle/20220914115144'
+  ```
 
 ## Further details
 
