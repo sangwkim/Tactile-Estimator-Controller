@@ -10,7 +10,8 @@ This repository contains the source code of the paper "Simultaneous Tactile Esti
   cd <project foler>
   git clone --recursive git@github.com:sangwkim/Tactile-Estimator-Controller.git
   cd Tactile-Estimator-Controller
-  conda env create -f conda_env.yml
+  conda env create -f conda_env.yml -n <environment name>
+  conda activate <environment name>
   ```
   
 - Install prerequisites for the GTSAM library
