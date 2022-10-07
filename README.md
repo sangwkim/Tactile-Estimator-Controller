@@ -52,7 +52,7 @@ This repository contains the source code of the paper "Simultaneous Tactile Esti
   
 - Install custom factors
 
-The custom factors library is written based on [this template](https://github.com/borglab/gtsam-project-python), and can be installed by running below commands.
+  The custom factors library is written based on [this template](https://github.com/borglab/gtsam-project-python), and can be installed by running below commands.
 
   ```
   cd <project folder>/Tactile-Estimator-Controller/custom-factors/v2
