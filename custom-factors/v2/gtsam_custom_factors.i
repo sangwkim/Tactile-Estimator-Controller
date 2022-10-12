@@ -10,9 +10,15 @@
 #include <cpp/DispVar.h>
 #include <cpp/EnergyElastic.h>
 #include <cpp/TorqLine.h>
+#include <cpp/Friction.h>
 
 // The namespace should be the same as in the c++ source code.
 namespace gtsam_custom_factors {
+
+virtual class Friction : gtsam::NoiseModelFactor {
+  Friction(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5,
+    double mu, const gtsam::Vector6 k, double sigma_weak, double sigma_strong);
+};
 
 virtual class EnergyElastic : gtsam::NoiseModelFactor {
   EnergyElastic(size_t key1, size_t key2, double cost_sigma);
