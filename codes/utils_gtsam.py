@@ -62,9 +62,10 @@ class gtsam_graph:
         self.CONTROL_EFFORT__ = gtsam.noiseModel.Diagonal.Sigmas(2e0*np.array([8.7e-2, 8.7e-2, 2e-3, .1, .1, 1]))
         self.CONTROL_EFFORT___ = gtsam.noiseModel.Diagonal.Sigmas(1e1*np.array([8.7e-2, 8.7e-2, 2e-2, .1, 1, 1]))
         self.CONTROL_EFFORT____ = gtsam.noiseModel.Diagonal.Sigmas(1e1*np.array([8.7e-2, 8.7e-2, 8.7e-2, .1, .1, 3.5]))
-        self.TRAJ_ERROR = gtsam.noiseModel.Diagonal.Sigmas(1e1*np.array([1e-1, 1e-1, 1e-1, 1e5, 1e5, 1e5]))
-        self.TRAJ_ERROR_ = gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
+        self.TRAJ_ERROR_ROT = gtsam.noiseModel.Diagonal.Sigmas(1e1*np.array([1e-1, 1e-1, 1e-1, 1e5, 1e5, 1e5]))
+        self.TRAJ_ERROR_ROT_ = gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
                             gtsam.noiseModel.Diagonal.Sigmas(1e1*np.array([1e-1, 1e-1, 1e-1, 1e5, 1e5, 1e5])))
+        self.TRAJ_ERROR_TRN = gtsam.noiseModel.Diagonal.Sigmas(np.array([2e0, 2e0, 2e0, 1e-1, 1e-1, 1e1]))
 
         self.NO_ENERGY_FACTOR = False # If True, turns off the energy factor
         self.USE_RT_ESTIMATE = True # If True, use online estimate of grasp parameters
@@ -230,6 +231,9 @@ class gtsam_graph:
         self.cf_detect_on_1, self.cf_detect_on_2 = False, False
 
         self.mode = 0 # point: 0 / line: 1 / patch: 2
+
+        self.command_type = 'rotation'
+        self.i_trn_0 = 0
         
         ## Since, we do not know the orientation of the object, we first just assume it's parallel to the ground (normal_vec).
         ## Under the assumpiton, the below line computes a relative rotation matrix from gripper to object bottom surface.
@@ -335,7 +339,7 @@ class gtsam_graph:
             self.j += 1
 
             # F_rot
-            self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
+            self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(), self.TRAJ_ERROR_ROT), self.f_num, self.f_dict, H(self.j))
             self.push_back(self.graph, PoseDiff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
             
             # F_motion
@@ -398,22 +402,31 @@ class gtsam_graph:
         # data[:,7:13]: tactile measurements (x, y, z, yaw(Rx), pitch(Ry), roll(Rx))
         # data[:,13:]: command rotation matrix
         if __name__ == "__main__":
-            data_array = np.asarray(data.data).reshape(-1,7+6+9)
+            if self.command_type == 'rotation':
+                data_array = np.asarray(data.data).reshape(-1,7+6+9)
+            elif self.command_type == 'translation':
+                data_array = np.asarray(data.data).reshape(-1,7+6+3)
         else:
-            data_array = np.hstack((data[0], data[1], data[2].reshape((-1,9))))
+            if self.command_type == 'rotation':
+                data_array = np.hstack((data[0].reshape((-1,7)), data[1].reshape((-1,6)), data[2].reshape((-1,9))))
+            elif self.command_type == 'translation':
+                data_array = np.hstack((data[0].reshape((-1,7)), data[1].reshape((-1,6)), data[2].reshape((-1,3))))
 
-        cart_new_list, tactile_new_list, com_rot_list = [], [], []
+        cart_new_list, tactile_new_list, command_list = [], [], []
         for i in range(data_array.shape[0]):
             cart_new_list.append(data_array[i,:7])
             tactile_new_list.append(data_array[i,7:13])
-            com_rot_list.append(data_array[i,13:].reshape(3,3))
+            if self.command_type == 'rotation':
+                command_list.append(data_array[i,13:].reshape(3,3))
+            elif self.command_type == 'translation':
+                command_list.append(data_array[i,13:])
 
         remove_idx = [] # list of factors to be removed (or replaced)
 
         for k in range(len(cart_new_list)):
             cart_new = cart_new_list[k]
             tactile_new = tactile_new_list[k]
-            com_rot = com_rot_list[k]
+            command = command_list[k]
         
             self.cart = np.array(cart_new)
             self.tact_raw = tactile_new.copy()
@@ -433,7 +446,7 @@ class gtsam_graph:
 
             if self.mode != 0:
                 if self.i < self.it + 10:
-                        com_rot = np.eye(3)
+                        command = np.eye(3)
 
             # GRIPPER #
             xyz_world = self.cart[:3] - self.cart_init[:3]
@@ -488,11 +501,12 @@ class gtsam_graph:
                 # The strength of the stikcing factor is determined by the d_opt. 
                 # In other words, if the current contact estimation is confident,
                 # it is more likely to stick so the sticking factor is set stronger.
-                d_opt = self.ct_cov[3:,3:].diagonal().prod()**(1/3)
-                self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), 
-                    gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
-                    gtsam.noiseModel.Diagonal.Sigmas(d_opt**0.5 / 2 * self.sticky))
-                    ), self.f_num, self.f_dict, A(self.i))
+                if self.command_type == 'rotation':
+                    d_opt = self.ct_cov[3:,3:].diagonal().prod()**(1/3)
+                    self.push_back(self.graph, gtsam.BetweenFactorPose3(C(self.i-1), C(self.i), gtsam.Pose3(), 
+                        gtsam.noiseModel.Robust.Create(gtsam.noiseModel.mEstimator.Huber.Create(k=1.345),
+                        gtsam.noiseModel.Diagonal.Sigmas(d_opt**0.5 / 2 * self.sticky))
+                        ), self.f_num, self.f_dict, A(self.i))
 
                 # gripper position (F_gp)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(G(self.i), gtsam.Pose3(gtsam.Rot3(g_rot), g_trn), self.ALL_FIXED_), self.f_num)
@@ -515,8 +529,12 @@ class gtsam_graph:
                 self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num) 
                 
                 # command rotation at the end of control horizon (F_rot)
-                self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR), self.f_num, self.f_dict, H(self.j))
-                self.push_back(self.graph, PoseDiff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                if self.command_type == 'rotation':
+                    self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(command), np.zeros(3)), self.TRAJ_ERROR_ROT), self.f_num, self.f_dict, H(self.j))
+                    self.push_back(self.graph, PoseDiff(G(0), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
+                elif self.command_type == 'translation':
+                    self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(), command), self.TRAJ_ERROR_TRN), self.f_num, self.f_dict, H(self.j))
+                    self.push_back(self.graph, ContactMotion(G(self.i_trn_0), G(self.j), C(self.i_trn_0), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
 
                 # Motion effort (F_motion)
                 self.push_back(self.graph, gtsam.PriorFactorPose3(U(self.j), gtsam.Pose3(), self.CONTROL_EFFORT), self.f_num, self.f_dict, M(self.j))
@@ -559,11 +577,14 @@ class gtsam_graph:
                 self.initial_estimate.insert(O(self.j), self.obj)
                 self.initial_estimate.insert(C(self.j), self.ct)
                 self.initial_estimate.insert(U(self.j), gtsam.Pose3())
-                self.initial_estimate.insert(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)))
+                if self.command_type == 'rotation':
+                    self.initial_estimate.insert(T(self.j), gtsam.Pose3(gtsam.Rot3(command), np.zeros(3)))
+                elif self.command_type == 'translation':
+                    self.initial_estimate.insert(T(self.j), gtsam.Pose3(gtsam.Rot3(), command))
                 self.initial_estimate.insert(W(self.j), self.wr)
                 self.initial_estimate.insert(O(int(1e5)+self.j), self.disp)
             
-            elif self.mode == 1 or self.mode == 2: # line
+            elif self.mode == 1 or self.mode == 2 and self.command_type == 'rotation': # line
                 ## Remove some factors at the first control horizon timestep and add new measurement at timestep [self.i]
                 remove_idx.append(self.f_dict[A(self.i)])
                 remove_idx.append(self.f_dict[E(self.i)])
@@ -599,7 +620,7 @@ class gtsam_graph:
 
                 # contact line/patch (from the object perspective) must be fixed throughout time
                 if self.mode == 1: # line
-                    if np.all(com_rot == np.eye(3)):
+                    if np.all(command == np.eye(3)):
                         self.push_back(self.graph, DispDiff(O(self.i-1), O(self.i), C(self.i-1), C(self.i), gtsam.Pose3(), self.RX_FIXED__, False), self.f_num, self.f_dict, V(self.i))
                     else:
                         self.rx_fixed[1] = np.clip(1e-2 * self.ct_cov.diagonal()[2]**0.5, self.rx_fixed_clip, 1)
@@ -629,7 +650,7 @@ class gtsam_graph:
                 self.push_back(self.graph, DispVar(G(self.j), N(self.j), O(self.j), O(int(1e5)+self.j), self.ALL_FIXED__), self.f_num)
 
                 # command rotation at the end of control horizon
-                self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(self.j))
+                self.push_back(self.graph, gtsam.PriorFactorPose3(T(self.j), gtsam.Pose3(gtsam.Rot3(command), np.zeros(3)), self.TRAJ_ERROR_ROT_), self.f_num, self.f_dict, H(self.j))
                 self.push_back(self.graph, PoseDiff(G(self.it), G(self.j), T(self.j), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(self.j))
                 
                 # Motion effort
@@ -692,7 +713,7 @@ class gtsam_graph:
                 self.initial_estimate.insert(O(self.j), self.obj)
                 self.initial_estimate.insert(C(self.j), self.ct)
                 self.initial_estimate.insert(U(self.j), gtsam.Pose3())
-                self.initial_estimate.insert(T(self.j), gtsam.Pose3(gtsam.Rot3(com_rot), np.zeros(3)))
+                self.initial_estimate.insert(T(self.j), gtsam.Pose3(gtsam.Rot3(command), np.zeros(3)))
                 self.initial_estimate.insert(W(self.j), self.wr)
                 self.initial_estimate.insert(O(int(1e5)+self.j), self.disp)
 
@@ -780,6 +801,21 @@ class gtsam_graph:
         if __name__ == "__main__":
             self.publish_everything()
 
+    def change_command_type(self, command_type):
+        self.command_type = command_type
+        self.i_trn_0 = self.i
+        remove_idx = []
+        for t in range(self.i+1, self.j+1):
+            remove_idx.append(self.f_dict[H(t)])
+            remove_idx.append(self.f_dict[F(t)])
+            if self.command_type == 'translation':
+                self.push_back(self.graph, gtsam.PriorFactorPose3(T(t), gtsam.Pose3(gtsam.Rot3(), np.zeros(3)), self.TRAJ_ERROR_TRN), self.f_num, self.f_dict, H(t))
+                self.push_back(self.graph, ContactMotion(G(self.i_trn_0), G(t), C(self.i_trn_0), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
+        self.isam.update(self.graph, self.initial_estimate, gtsam.KeyVector(remove_idx))
+        self.isam.update()
+        self.graph.resize(0)
+        self.initial_estimate.clear()
+
     def cf_transition(self):
         ## Transfer the factor graph from one contact formulation to another by removing, modifying, and adding some factors
         self.i += 1
@@ -844,7 +880,7 @@ class gtsam_graph:
         # Modify the factors in the control horizon timesteps
         for t in range(self.i+1, self.j+1):
             self.push_back(self.graph, gtsam.PriorFactorPose3(U(t), gtsam.Pose3(), self.CONTROL_EFFORT__), self.f_num, self.f_dict, M(t))
-            self.push_back(self.graph, gtsam.PriorFactorPose3(T(t), gtsam.Pose3(), self.TRAJ_ERROR_), self.f_num, self.f_dict, H(t))
+            self.push_back(self.graph, gtsam.PriorFactorPose3(T(t), gtsam.Pose3(), self.TRAJ_ERROR_ROT_), self.f_num, self.f_dict, H(t))
             self.push_back(self.graph, PoseDiff(G(self.it), G(t), T(t), self.ALL_FIXED_, False), self.f_num, self.f_dict, F(t))
 
             if self.mode == 1:

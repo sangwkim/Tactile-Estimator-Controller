@@ -36,7 +36,7 @@ if viz_on:
     viz = visualization(height, pose_rel, height, simulator.T_og, view_elev=30, view_azim=225, view_center=(0,0,-height), view_radius=30, env_type='floor')
     viz.set_show(env=False, grp=True, obj_gt=True, obj_est=True, cline=False)
 
-force_log, grp_log, ct_log = [], [], []
+force_log, grp_log, ct_log, tact_log = [], [], [], []
 
 for tra in tqdm(traj):
 
@@ -44,6 +44,7 @@ for tra in tqdm(traj):
     force_log.append(simulator.force)
     grp_log.append(simulator.grp.translation())
     ct_log.append(simulator.ct.translation())
+    tact_log.append(np.hstack((simulator.gg_.translation(), R.from_matrix(simulator.gg_.rotation().matrix()).as_euler('zyx',True))))
 
     if simulator.i > touch_begin:
         simulator.touch = True
