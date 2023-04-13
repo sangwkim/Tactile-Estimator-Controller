@@ -6,7 +6,7 @@
 
 namespace gtsam_custom_factors {
 
-class PhysicInfer: public gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3> {
+class PhysicInfer: public gtsam::NoiseModelFactor6<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3, gtsam::Vector6> {
 
 private:
 
@@ -14,8 +14,8 @@ private:
 
 public:
 
-  PhysicInfer(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, const gtsam::Point3 contact_point, gtsam::SharedNoiseModel model) :
-      gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3>(model, key1, key2, key3, key4, key5),
+  PhysicInfer(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, gtsam::Key key6, const gtsam::Point3 contact_point, gtsam::SharedNoiseModel model) :
+      gtsam::NoiseModelFactor6<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3, gtsam::Vector6>(model, key1, key2, key3, key4, key5, key6),
       oc(contact_point) {}
 
   gtsam::Vector evaluateError(
@@ -24,11 +24,13 @@ public:
             const gtsam::Pose3& pg,
             const gtsam::Pose3& pG,
             const gtsam::Vector3& s,
+            const gtsam::Vector6& w,
             boost::optional<gtsam::Matrix&> Ho = boost::none,
             boost::optional<gtsam::Matrix&> HO = boost::none,
             boost::optional<gtsam::Matrix&> Hg = boost::none,
             boost::optional<gtsam::Matrix&> HG = boost::none,
-            boost::optional<gtsam::Matrix&> Hs = boost::none) const {
+            boost::optional<gtsam::Matrix&> Hs = boost::none,
+            boost::optional<gtsam::Matrix&> Hw = boost::none) const {
       
         typename gtsam::traits<gtsam::Pose3>::ChartJacobian::Jacobian Ho_, Hg_, HO_, HG_, Hog, HOG;
         typename gtsam::Matrix36 Ho__, HO__;
@@ -66,14 +68,14 @@ public:
         gtsam::Vector C = pO.transformFrom(oc, &HO__, &Hdum2);
         gtsam::Vector cC = c - C;
           // Potential due to extrinsic sliding (psi_e)
-        double psi_e = (cC[0]*cC[0] + cC[2]*cC[2])/e[2]/e[2];
+        double psi_e = std::abs(w[4])*(cC[0]*cC[0] + cC[2]*cC[2])/e[2]/e[2];
           // Jacobians
             // d( Extrinsic Potential ) / d( Object Poses )
-        gtsam::Matrix Hpsie_cC = (gtsam::Matrix13() << 2*cC[0]/e[2]/e[2], 0, 2*cC[2]/e[2]/e[2]).finished();
+        gtsam::Matrix Hpsie_cC = std::abs(w[4])*(gtsam::Matrix13() << 2*cC[0]/e[2]/e[2], 0, 2*cC[2]/e[2]/e[2]).finished();
         gtsam::Matrix Hpsieo = Hpsie_cC * Ho__;
         gtsam::Matrix HpsieO = - Hpsie_cC * HO__;
             // Jacobian of Jacobian
-        gtsam::Matrix H_Hpsie_cC_e = (gtsam::Matrix33() << 0, 0, -4*cC[0]/e[2]/e[2]/e[2],
+        gtsam::Matrix H_Hpsie_cC_e = std::abs(w[4])*(gtsam::Matrix33() << 0, 0, -4*cC[0]/e[2]/e[2]/e[2],
                                                            0, 0, 0,
                                                            0, 0, -4*cC[2]/e[2]/e[2]/e[2]).finished();
               // d( d( Extrinsic Potential ) / d( Object Poses ) ) / d( Parameters )
@@ -138,6 +140,7 @@ public:
         if (Hg) *Hg = gtsam::Matrix::Zero(10,6);
         if (HG) *HG = gtsam::Matrix::Zero(10,6);
         if (Hs) *Hs = H_out_e * Hes;
+        if (Hw) *Hw = gtsam::Matrix::Zero(10,6);
         /*
         std::cout << "e: " << e << std::endl;
         std::cout << "lmi: " << lmi << std::endl;
@@ -189,7 +192,7 @@ public:
 
   /** number of variables attached to this factor */
   std::size_t size() const {
-    return 5;
+    return 6;
   }
 
 }; // \class PhysicInfer

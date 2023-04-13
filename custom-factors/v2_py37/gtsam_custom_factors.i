@@ -16,27 +16,50 @@
 #include <cpp/ExtrinsicStiff.h>
 #include <cpp/PhysicInfer.h>
 #include <cpp/ConstantSum.h>
+#include <cpp/IntrinsicWrench.h>
+#include <cpp/MotionHinge.h>
+#include <cpp/Goal.h>
+#include <cpp/PhysicsEquation.h>
 
 // The namespace should be the same as in the c++ source code.
 namespace gtsam_custom_factors {
+
+virtual class PhysicsEquation : gtsam::NoiseModelFactor {
+  PhysicsEquation(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5, size_t key6,
+    const gtsam::noiseModel::Base* model, bool fut);
+};
+
+virtual class Goal : gtsam::NoiseModelFactor {
+  Goal(size_t key1, size_t key2,
+    const gtsam::Pose3& goal, const gtsam::noiseModel::Base* model, bool zeroJac);
+};
+
+virtual class MotionHinge : gtsam::NoiseModelFactor {
+  MotionHinge(size_t key1, size_t key2, size_t key3, gtsam::Matrix33 c_cov, double cost_sigma);
+};
+
+virtual class IntrinsicWrench : gtsam::NoiseModelFactor {
+  IntrinsicWrench(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5, size_t key6,
+    const gtsam::noiseModel::Base* model, const double step_num);
+};
 
 virtual class ConstantSum : gtsam::NoiseModelFactor {
   ConstantSum(size_t key1, const double sum, const gtsam::noiseModel::Base* model);
 };
 
 virtual class PhysicInfer : gtsam::NoiseModelFactor {
-  PhysicInfer(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5,
+  PhysicInfer(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5, size_t key6,
     const gtsam::Point3 contact_point, const gtsam::noiseModel::Base* model);
 };
 
 virtual class ExtrinsicStiff : gtsam::NoiseModelFactor {
-  ExtrinsicStiff(size_t key1, size_t key2, size_t key3,
-    const gtsam::noiseModel::Base* model);
+  ExtrinsicStiff(size_t key1, size_t key2, size_t key3, size_t key4,
+    const gtsam::noiseModel::Base* model, bool zeroJac);
 };
 
 virtual class IntrinsicGrasp : gtsam::NoiseModelFactor {
   IntrinsicGrasp(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5,
-    const gtsam::noiseModel::Base* model);
+    const gtsam::noiseModel::Base* model, bool zeroJac);
 };
 
 virtual class FrictionLine : gtsam::NoiseModelFactor {

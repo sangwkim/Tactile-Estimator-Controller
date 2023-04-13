@@ -12,10 +12,14 @@ namespace gtsam_custom_factors {
 
 class IntrinsicGrasp: public gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3> {
 
+private:
+
+  bool zj;
+
 public:
 
-  IntrinsicGrasp(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, gtsam::SharedNoiseModel model) :
-      gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3>(model, key1, key2, key3, key4, key5) {}
+  IntrinsicGrasp(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, gtsam::SharedNoiseModel model, bool zeroJac) :
+      gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector3>(model, key1, key2, key3, key4, key5), zj(zeroJac) {}
 
   gtsam::Vector evaluateError(
             const gtsam::Pose3& p1,
@@ -47,11 +51,14 @@ public:
                                                 0, -lm[3]/e[1]/e[1], 0,
                                                 0, -lm[4]/e[1]/e[1], 0).finished();
 
-      if (H1) *H1 = Hlm * H13 * H1_;
-      //if (H1) *H1 = gtsam::Matrix::Zero(3,6);
+      if (zj==true) {
+        if (H1) *H1 = gtsam::Matrix::Zero(3,6);
+        if (H3) *H3 = gtsam::Matrix::Zero(3,6);
+      } else {
+        if (H1) *H1 = Hlm * H13 * H1_;
+        if (H3) *H3 = Hlm * H13 * H3_;
+      }
       if (H2) *H2 = Hlm * H24 * H2_;
-      if (H3) *H3 = Hlm * H13 * H3_;
-      //if (H3) *H3 = gtsam::Matrix::Zero(3,6);
       if (H4) *H4 = Hlm * H24 * H4_;
       if (Hs) *Hs = gtsam::Matrix::Zero(3,3); // Hs_ * Hes;
 

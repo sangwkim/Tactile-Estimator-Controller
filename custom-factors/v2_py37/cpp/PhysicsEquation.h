@@ -6,17 +6,17 @@
 
 namespace gtsam_custom_factors {
 
-class PhysicsEquation: public gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3> {
+class PhysicsEquation: public gtsam::NoiseModelFactor6<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector2> {
 
 private:
 
-    double F_max, M_max, mu_max;
+  bool future;
 
 public:
 
-  PhysicsEquation(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, const double f_, const double m_, const double mu_, gtsam::SharedNoiseModel model) :
-      gtsam::NoiseModelFactor5<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3>(model, key1, key2, key3, key4, key5),
-      F_max(f_), M_max(m_), mu_max(mu_) {}
+  PhysicsEquation(gtsam::Key key1, gtsam::Key key2, gtsam::Key key3, gtsam::Key key4, gtsam::Key key5, gtsam::Key key6, gtsam::SharedNoiseModel model, bool fut) :
+      gtsam::NoiseModelFactor6<gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Pose3, gtsam::Vector2>(model, key1, key2, key3, key4, key5, key6),
+      future(fut) {}
 
   gtsam::Vector evaluateError(
             const gtsam::Pose3& po,
@@ -24,15 +24,22 @@ public:
             const gtsam::Pose3& pg,
             const gtsam::Pose3& pG,
             const gtsam::Pose3& pc,
+            const gtsam::Vector2& v, // v[0]: log(beta), v[1]: log(mu_max)
             boost::optional<gtsam::Matrix&> Ho = boost::none,
             boost::optional<gtsam::Matrix&> HO = boost::none,
             boost::optional<gtsam::Matrix&> Hg = boost::none,
             boost::optional<gtsam::Matrix&> HG = boost::none,
-            boost::optional<gtsam::Matrix&> Hc = boost::none) const {
+            boost::optional<gtsam::Matrix&> Hc = boost::none,
+            boost::optional<gtsam::Matrix&> Hv = boost::none) const {
 
         typename gtsam::traits<gtsam::Pose3>::ChartJacobian::Jacobian Hc1, Hg3, Hg2, HG2, Ho1, Hg1, HO1, HG1, Hog, HOG;
         typename gtsam::Matrix36 Hcg1, Hcg2;
         typename gtsam::Matrix33 Hcgr2, Hgrg, Hcgr4, Hgtg, Hcgr1, Hsrg, Hcgr3, Hstg;
+
+        // Parameter Conversion
+        gtsam::Vector ve = (gtsam::Vector2() << exp(v[0]), exp(v[1])).finished();
+          // Jacobian
+        gtsam::Matrix Hv1 = (gtsam::Vector2() << exp(v[0]), exp(v[1])).finished().asDiagonal();
 
         // Rotation for frame conversion
         gtsam::Pose3 pcg = gtsam::traits<gtsam::Pose3>::Between(pc,pg,&Hc1,&Hg3);
@@ -75,71 +82,81 @@ public:
 
         // Physical Equation
 
-        double AT = (1 / pow(F_max,2)) + (pow(cg_trn[0],2) / pow(M_max,2));
-        double AN = (1 / pow(F_max,2)) + (pow(cg_trn[1],2) / pow(M_max,2));
-        double B = cg_trn[0] * cg_trn[1] / pow(M_max,2);
-        gtsam::Matrix Hcgt5 = (gtsam::Matrix13() << 2*cg_trn[0]/pow(M_max,2), 0, 0).finished();
-        gtsam::Matrix Hcgt6 = (gtsam::Matrix13() << 0, 2*cg_trn[1]/pow(M_max,2), 0).finished();
-        gtsam::Matrix Hcgt7 = (gtsam::Matrix13() << cg_trn[1]/pow(M_max,2), cg_trn[0]/pow(M_max,2), 0).finished();
+        double AT = 1 + ve[0] * pow(cg_trn[0],2);
+        double AN = 1 + ve[0] * pow(cg_trn[1],2);
+        double B = ve[0] * cg_trn[0] * cg_trn[1];
+        gtsam::Matrix Hcgt5 = (gtsam::Matrix13() << ve[0] * 2*cg_trn[0], 0, 0).finished();
+        gtsam::Matrix Hcgt6 = (gtsam::Matrix13() << 0, ve[0] * 2*cg_trn[1], 0).finished();
+        gtsam::Matrix Hcgt7 = (gtsam::Matrix13() << ve[0]*cg_trn[1], ve[0]*cg_trn[0], 0).finished();
+        gtsam::Matrix Hve1 = (gtsam::Matrix12() << pow(cg_trn[0],2), 0).finished();
+        gtsam::Matrix Hve2 = (gtsam::Matrix12() << pow(cg_trn[1],2), 0).finished();
+        gtsam::Matrix Hve3 = (gtsam::Matrix12() <<  cg_trn[0] * cg_trn[1], 0).finished();
 
         double mu = ((XX*AT)+(YY*B)) / ((XX*B)+(YY*AN));
 
         double x_slip, y_slip;
-        gtsam::Matrix HXX1, HYY1, HAT1, HAN1, HB1, HXX2, HYY2, HAT2, HAN2, HB2;
+        gtsam::Matrix HXX1, HYY1, HAT1, HAN1, HB1, HXX2, HYY2, HAT2, HAN2, HB2, Hve4, Hve5;
 
-        if (mu >= -mu_max && mu <= mu_max) {
-            x_slip = (YY*B + XX*AT) / (pow(B,2) - AN*AT) / pow(F_max,2);
-            y_slip = (YY*AN + XX*B) / (pow(B,2) - AN*AT) / pow(F_max,2);
+        if (mu >= -ve[1] && mu <= ve[1]) {
+            x_slip = (YY*B + XX*AT) / (pow(B,2) - AN*AT);
+            y_slip = (YY*AN + XX*B) / (pow(B,2) - AN*AT);
             
-            HXX1 = (gtsam::Matrix11() << AT / (pow(B,2) - AN*AT) / pow(F_max,2)).finished();
-            HYY1 = (gtsam::Matrix11() << B / (pow(B,2) - AN*AT) / pow(F_max,2)).finished();
-            HAT1 = (gtsam::Matrix11() << (XX*B*B + YY*B*AN) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
-            HAN1 = (gtsam::Matrix11() << (YY*B*AT + XX*AT*AT) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
-            HB1 = (gtsam::Matrix11() << -(YY*B*B + YY*AN*AT + 2*XX*B*AT) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
+            HXX1 = (gtsam::Matrix11() << AT / (pow(B,2) - AN*AT) ).finished();
+            HYY1 = (gtsam::Matrix11() << B / (pow(B,2) - AN*AT) ).finished();
+            HAT1 = (gtsam::Matrix11() << (XX*B*B + YY*B*AN) / pow((pow(B,2) - AN*AT),2) ).finished();
+            HAN1 = (gtsam::Matrix11() << (YY*B*AT + XX*AT*AT) / pow((pow(B,2) - AN*AT),2) ).finished();
+            HB1 = (gtsam::Matrix11() << -(YY*B*B + YY*AN*AT + 2*XX*B*AT) / pow((pow(B,2) - AN*AT),2) ).finished();
+            Hve4 = gtsam::Matrix12::Zero();
 
-            HXX2 = (gtsam::Matrix11() << B / (pow(B,2) - AN*AT) / pow(F_max,2)).finished();
-            HYY2 = (gtsam::Matrix11() << AN / (pow(B,2) - AN*AT) / pow(F_max,2)).finished();
-            HAT2 = (gtsam::Matrix11() << (YY*AN*AN + XX*B*AN) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
-            HAN2 = (gtsam::Matrix11() << (YY*B*B + XX*B*AT) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
-            HB2 = (gtsam::Matrix11() << -(XX*B*B + XX*AN*AT + 2*YY*B*AN) / pow((pow(B,2) - AN*AT),2) / pow(F_max,2)).finished();
+            HXX2 = (gtsam::Matrix11() << B / (pow(B,2) - AN*AT) ).finished();
+            HYY2 = (gtsam::Matrix11() << AN / (pow(B,2) - AN*AT) ).finished();
+            HAT2 = (gtsam::Matrix11() << (YY*AN*AN + XX*B*AN) / pow((pow(B,2) - AN*AT),2) ).finished();
+            HAN2 = (gtsam::Matrix11() << (YY*B*B + XX*B*AT) / pow((pow(B,2) - AN*AT),2) ).finished();
+            HB2 = (gtsam::Matrix11() << -(XX*B*B + XX*AN*AT + 2*YY*B*AN) / pow((pow(B,2) - AN*AT),2) ).finished();
+            Hve5 = gtsam::Matrix12::Zero();
 
-        } else if (mu < -mu_max) {
-            x_slip = mu_max * YY / (AT + mu_max*B) / pow(F_max,2);
-            y_slip = - YY / (AT + mu_max*B) / pow(F_max,2);
+        } else if (mu < -ve[1]) {
+            x_slip = ve[1] * YY / (AT + ve[1]*B);
+            y_slip = - YY / (AT + ve[1]*B);
             
             HXX1 = (gtsam::Matrix11() << 0).finished();
-            HYY1 = (gtsam::Matrix11() << mu_max / (AT + mu_max*B) / pow(F_max,2)).finished();
-            HAT1 = (gtsam::Matrix11() << - mu_max * YY / pow(AT + mu_max*B,2) / pow(F_max,2)).finished();
+            HYY1 = (gtsam::Matrix11() << ve[1] / (AT + ve[1]*B) ).finished();
+            HAT1 = (gtsam::Matrix11() << - ve[1] * YY / pow(AT + ve[1]*B,2) ).finished();
             HAN1 = (gtsam::Matrix11() << 0).finished();
-            HB1 = (gtsam::Matrix11() << - mu_max * mu_max * YY / pow(AT + mu_max*B,2) / pow(F_max,2)).finished();
+            HB1 = (gtsam::Matrix11() << - ve[1] * ve[1] * YY / pow(AT + ve[1]*B,2) ).finished();
+            Hve4 = (gtsam::Matrix12() << 0, AT * YY / pow(AT + ve[1]*B, 2) ).finished();
 
             HXX2 = (gtsam::Matrix11() << 0).finished();
-            HYY2 = (gtsam::Matrix11() << - 1 / (AT + mu_max*B) / pow(F_max,2)).finished();
-            HAT2 = (gtsam::Matrix11() << YY / pow(AT + mu_max*B,2) / pow(F_max,2)).finished();
+            HYY2 = (gtsam::Matrix11() << - 1 / (AT + ve[1]*B) ).finished();
+            HAT2 = (gtsam::Matrix11() << YY / pow(AT + ve[1]*B,2) ).finished();
             HAN2 = (gtsam::Matrix11() << 0).finished();
-            HB2 = (gtsam::Matrix11() << mu_max * YY / pow(AT + mu_max*B,2) / pow(F_max,2)).finished();
+            HB2 = (gtsam::Matrix11() << ve[1] * YY / pow(AT + ve[1]*B,2) ).finished();
+            Hve5 = (gtsam::Matrix12() << 0, YY * B / pow(AT + ve[1]*B, 2) ).finished();
 
         } else {
-            x_slip = mu_max * YY / (mu_max*B - AT) / pow(F_max,2);
-            y_slip = YY / (mu_max*B - AT) / pow(F_max,2);
+            x_slip = ve[1] * YY / (ve[1]*B - AT);
+            y_slip = YY / (ve[1]*B - AT);
             
             HXX1 = (gtsam::Matrix11() << 0).finished();
-            HYY1 = (gtsam::Matrix11() << mu_max / (mu_max*B - AT) / pow(F_max,2)).finished();
-            HAT1 = (gtsam::Matrix11() << mu_max * YY / pow(mu_max*B - AT,2) / pow(F_max,2)).finished();
+            HYY1 = (gtsam::Matrix11() << ve[1] / (ve[1]*B - AT) ).finished();
+            HAT1 = (gtsam::Matrix11() << ve[1] * YY / pow(ve[1]*B - AT,2) ).finished();
             HAN1 = (gtsam::Matrix11() << 0).finished();
-            HB1 = (gtsam::Matrix11() << - mu_max * mu_max * YY / pow(mu_max*B - AT,2) / pow(F_max,2)).finished();
+            HB1 = (gtsam::Matrix11() << - ve[1] * ve[1] * YY / pow(ve[1]*B - AT,2) ).finished();
+            Hve4 = (gtsam::Matrix12() << 0, - AT * YY / pow(ve[1]*B - AT, 2) ).finished();
 
             HXX2 = (gtsam::Matrix11() << 0).finished();
-            HYY2 = (gtsam::Matrix11() << 1 / (mu_max*B - AT) / pow(F_max,2)).finished();
-            HAT2 = (gtsam::Matrix11() << YY / pow(mu_max*B - AT,2) / pow(F_max,2)).finished();
+            HYY2 = (gtsam::Matrix11() << 1 / (ve[1]*B - AT) ).finished();
+            HAT2 = (gtsam::Matrix11() << YY / pow(ve[1]*B - AT,2) ).finished();
             HAN2 = (gtsam::Matrix11() << 0).finished();
-            HB2 = (gtsam::Matrix11() << - mu_max * YY / pow(mu_max*B - AT,2) / pow(F_max,2)).finished();
+            HB2 = (gtsam::Matrix11() << - ve[1] * YY / pow(ve[1]*B - AT,2) ).finished();
+            Hve5 = (gtsam::Matrix12() << 0, - YY * B / pow(ve[1]*B - AT, 2) ).finished();
         }
   
-        double theta_slip = (x_slip*cg_trn[1] - y_slip*cg_trn[0]) * pow(F_max,2) / pow(M_max,2);
-        gtsam::Matrix Hcgt2 = (gtsam::Matrix13() << -y_slip * pow(F_max,2) / pow(M_max,2), x_slip * pow(F_max,2) / pow(M_max,2), 0).finished();
-        gtsam::Matrix Hxs1 = (gtsam::Matrix11() << cg_trn[1] * pow(F_max,2) / pow(M_max,2)).finished();
-        gtsam::Matrix Hys1 = (gtsam::Matrix11() << -cg_trn[0] * pow(F_max,2) / pow(M_max,2)).finished();        
+        double theta_slip = ve[0] * (x_slip*cg_trn[1] - y_slip*cg_trn[0]);
+        gtsam::Matrix Hcgt2 = (gtsam::Matrix13() << - y_slip * ve[0], x_slip * ve[0], 0).finished();
+        gtsam::Matrix Hxs1 = (gtsam::Matrix11() << cg_trn[1] * ve[0]).finished();
+        gtsam::Matrix Hys1 = (gtsam::Matrix11() << -cg_trn[0] * ve[0]).finished();      
+        gtsam::Matrix Hve6 = (gtsam::Matrix12() << (x_slip*cg_trn[1] - y_slip*cg_trn[0]), 0).finished();  
 
         // Output
         gtsam::Vector output = (gtsam::Vector3() << theta_slip+slip_rot[2], x_slip+slip_trn[0], y_slip+slip_trn[1]).finished();
@@ -173,19 +190,25 @@ public:
         gtsam::Matrix Hpcg = Hpcgr*Hcg1 + Hcg_trn*Hcg2;
         gtsam::Matrix Hpog = H_slip_g*Hog;
         gtsam::Matrix HpOG = H_slip_g*HOG;
+        gtsam::Matrix Hve = HAT*Hve1 + HAN*Hve2 + HB*Hve3 + H_x_slip*Hve4 + H_y_slip*Hve5 + H_theta_slip*Hve6;
         
         if (Ho) *Ho = Hpog * Ho1;
         if (HO) *HO = HpOG * HO1;
         if (Hg) *Hg = Hpog*Hg1 + HgG_g*Hg2 + Hpcg*Hg3;
         if (HG) *HG = HpOG*HG1 + HgG_g*HG2;
         if (Hc) *Hc = Hpcg*Hc1;
-
+        if (future==true) {
+            if (Hv) *Hv = gtsam::Matrix32::Zero();
+        } else {
+            if (Hv) *Hv = Hve * Hv1;
+        }
+        
         return output;
   }
 
   /** number of variables attached to this factor */
   std::size_t size() const {
-    return 5;
+    return 6;
   }
 
 }; // \class PhysicsEquation

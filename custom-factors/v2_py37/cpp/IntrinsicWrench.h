@@ -41,13 +41,15 @@ public:
       gtsam::Pose3 p24 = gtsam::traits<gtsam::Pose3>::Between(p2,p4,&H2_,&H4_);
       gtsam::Vector lm = gtsam::traits<gtsam::Pose3>::Local(p13,p24,&H13,&H24);
       gtsam::Vector e = (gtsam::Vector3() << exp(s[0]), exp(s[1]), exp(s[2])).finished();
-      gtsam::Vector wrench_gf = (gtsam::Vector6() << 0, 0, lm[2]/e[0]/e[0], lm[3]/e[1]/e[1], lm[4]/e[1]/e[1], 0).finished(); // gripper frame wrench
+      gtsam::Vector wrench_gf_ = (gtsam::Vector6() << 0, 0, lm[2]/e[0]/e[0], lm[3]/e[1]/e[1], lm[4]/e[1]/e[1], 0).finished(); // gripper frame wrench (unregularized)
+      double alpha = pow(pow(lm[2]/e[0],2) + pow(lm[3]/e[1],2) + pow(lm[4]/e[1],2), 0.5);
+      gtsam::Vector wrench_gf = wrench_gf_ / alpha; // gripper frame wrench (regularized)
       
       gtsam::Vector torq_wf = p3.rotation().rotate( (gtsam::Vector3() << 0, 0, lm[2]/e[0]/e[0]).finished() );
       gtsam::Vector force_wf = p3.rotation().rotate( (gtsam::Vector3() << lm[3]/e[1]/e[1], lm[4]/e[1]/e[1], 0).finished() );      
       gtsam::Vector wrench_wf = (gtsam::Vector6() << torq_wf[0], torq_wf[1], torq_wf[2], force_wf[0], force_wf[1], force_wf[2]).finished();
 
-      gtsam::Vector output = w - 0.01*wrench_wf/N;
+      gtsam::Vector output = w - 0.01*wrench_wf;
 
       if (H1) *H1 = gtsam::Matrix::Zero(6,6);
       if (H2) *H2 = gtsam::Matrix::Zero(6,6);
