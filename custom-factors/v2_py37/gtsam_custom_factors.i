@@ -20,9 +20,15 @@
 #include <cpp/MotionHinge.h>
 #include <cpp/Goal.h>
 #include <cpp/PhysicsEquation.h>
+#include <cpp/TagCalibration.h>
 
 // The namespace should be the same as in the c++ source code.
 namespace gtsam_custom_factors {
+
+virtual class TagCalibration : gtsam::NoiseModelFactor {
+  TagCalibration(size_t key1, size_t key2, const gtsam::Pose3& p_wg, const gtsam::Pose3& p_go, const gtsam::Pose3& p_cam_tag,
+    const gtsam::noiseModel::Base* model);
+};
 
 virtual class PhysicsEquation : gtsam::NoiseModelFactor {
   PhysicsEquation(size_t key1, size_t key2, size_t key3, size_t key4, size_t key5, size_t key6,
